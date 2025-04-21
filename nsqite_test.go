@@ -157,7 +157,7 @@ func TestNSQiteClose(t *testing.T) {
 	initDB()
 	var wg sync.WaitGroup
 
-	for i := range 100 {
+	for i := range 1000 {
 		topic := "test-topic-close" + strconv.Itoa(i)
 		p := nsqite.NewProducer()
 		s1 := nsqite.NewConsumer(topic, "limit-consumer-1", nsqite.WithQueueSize(3))

@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/glebarez/sqlite v1.11.0
-	github.com/ixugo/nsqite v1.0.2
+	github.com/ixugo/nsqite v1.1.1
 	github.com/jackc/pgx/v5 v5.7.4
 	gorm.io/gorm v1.25.12
 )
@@ -29,5 +29,3 @@ require (
 	modernc.org/memory v1.7.2 // indirect
 	modernc.org/sqlite v1.28.0 // indirect
 )
-
-replace github.com/ixugo/nsqite => ../nsqite
