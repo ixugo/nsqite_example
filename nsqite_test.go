@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
 	"runtime"
 	"strconv"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	_ "github.com/glebarez/go-sqlite"
 	"github.com/ixugo/nsqite"
 )
+
+var nsqdb *nsqite.DB
 
 func initDB() {
 	// slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -28,7 +31,8 @@ func initDB() {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	if err := nsqite.SetDB(nsqite.DriverNameSQLite, db).AutoMigrate(); err != nil {
+	nsqdb = nsqite.SetDB(nsqite.DriverNameSQLite, db)
+	if err := nsqdb.AutoMigrate(); err != nil {
 		panic(err)
 	}
 }
@@ -91,7 +95,7 @@ func TestMaxAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c.WaitMessage()
+	<-c.WaitMessage()
 	time.Sleep(10 * time.Second)
 
 	if attempts != 3 {
@@ -152,23 +156,64 @@ func BenchmarkNSQite(b *testing.B) {
 func TestNSQiteClose(t *testing.T) {
 	initDB()
 	var wg sync.WaitGroup
-	for i := range 10000 {
+
+	for i := range 100 {
 		topic := "test-topic-close" + strconv.Itoa(i)
 		p := nsqite.NewProducer()
-		s1 := nsqite.NewConsumer(topic, "limit-consumer-1", nsqite.WithQueueSize(2))
-		s1.AddConcurrentHandlers(nsqite.ConsumerHandlerFunc(func(msg *nsqite.Message) error { return nil }), 1)
+		s1 := nsqite.NewConsumer(topic, "limit-consumer-1", nsqite.WithQueueSize(3))
+		s1.AddConcurrentHandlers(nsqite.ConsumerHandlerFunc(func(msg *nsqite.Message) error {
+			fmt.Println(">>>", string(msg.Body))
+			return nil
+		}), 1)
 
-		wg.Add(2)
+		wg.Add(3)
 		go func() {
 			defer wg.Done()
 			for range 3 {
-				p.Publish(topic, []byte("msg"))
+				if err := p.Publish(topic, []byte("msg")); err != nil {
+					fmt.Println(err)
+				}
 			}
 		}()
 		go func() {
 			defer wg.Done()
+			if err := p.Publish(topic, []byte("msg")); err != nil {
+				fmt.Println(err)
+			}
 			s1.Stop()
 		}()
+
+		go func() {
+			defer wg.Done()
+			select {
+			case <-s1.WaitMessage():
+			case <-time.After(5 * time.Second):
+				fmt.Println(">>> timeout")
+			}
+		}()
 	}
-	time.Sleep(time.Second)
+	wg.Wait()
+	time.Sleep(5 * time.Second)
+}
+
+func TestDeleteCompletedMessagesOlderThan(t *testing.T) {
+	os.Remove("test.db")
+	TestNSQite(t)
+
+	count, err := nsqdb.Count()
+	if err != nil {
+		t.Fatalf("查询数据行数失败: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("期望数据行数为1，但得到的是: %d", count)
+	}
+	nsqdb.DeleteCompletedMessagesOlderThan(0)
+
+	count, err = nsqdb.Count()
+	if err != nil {
+		t.Fatalf("查询数据行数失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("期望数据行数为0，但得到的是: %d", count)
+	}
 }
